@@ -158,12 +158,14 @@ const cv=$('cv'),ctx=cv.getContext('2d');
 let W=450,H=800,sc=1,dpr=1,F=520;
 function resize(){dpr=Math.min(2,devicePixelRatio||1);sc=innerHeight/800;W=Math.max(420,Math.min(innerWidth/sc,700));cv.width=W*sc*dpr|0;cv.height=H*sc*dpr|0;cv.style.width=W*sc+'px';cv.style.height=H*sc+'px';F=Math.min(W*1.25,640)}
 addEventListener('resize',resize);resize();
-const LANE=1.25,PZ=6.2,HOR=235,CAMH=4.6,FAR=64;
+const LANE=1.25,PZ=6.2,HOR=235,CAMH=4.6,FAR=64,NEAR=2.2;
 // projection : x monde (m), y hauteur (m), z distance devant la caméra (m)
-const pr=(x,y,z)=>({x:W/2+x*F/z,y:HOR+(CAMH-y)*F/z,s:F/z});
+// La caméra suit le joueur sur le côté (comme dans les vrais runners) : sa voie reste au centre, les rames des autres voies sur les côtés
+let camX=0;
+const pr=(x,y,z)=>({x:W/2+(x-camX)*F/z,y:HOR+(CAMH-y)*F/z,s:F/z});
 const P={lane:0,x:0,y:0,vy:0,slide:0,run:0,dead:false,stumble:0};
 let obs,coins,parts,dist,speed,coinsN,score,spawnZ,t=0,deadT,shake,lastMile;
-function reset(){obs=[];coins=[];parts=[];dist=0;speed=.32;coinsN=0;score=0;spawnZ=22;deadT=0;shake=0;lastMile=0;Object.assign(P,{lane:0,x:0,y:0,vy:0,slide:0,dead:false,stumble:0});CG.setScore(0)}
+function reset(){camX=0;obs=[];coins=[];parts=[];dist=0;speed=.32;coinsN=0;score=0;spawnZ=22;deadT=0;shake=0;lastMile=0;Object.assign(P,{lane:0,x:0,y:0,vy:0,slide:0,dead:false,stumble:0});CG.setScore(0)}
 function pattern(z){
   const lvl=Math.min(1,dist/3500);const lanes=[-1,0,1];
   const r=Math.random();
@@ -197,7 +199,7 @@ function step(){t++;
   if(CG.state!=='play'){P.run+=.15;return}
   if(P.dead){deadT++;if(deadT===55){CG.sfx.lose();CG.over(score)}stepParts();return}
   speed=Math.min(.75,.32+dist/9000);dist+=speed;P.run+=speed*.9;
-  P.x+=(P.lane*LANE-P.x)*.25;P.vy-=.016;P.y=Math.max(0,P.y+P.vy);if(P.y===0)P.vy=0;if(P.slide>0)P.slide--;if(P.stumble>0)P.stumble--;
+  P.x+=(P.lane*LANE-P.x)*.25;camX+=(P.x*.85-camX)*.18;P.vy-=.016;P.y=Math.max(0,P.y+P.vy);if(P.y===0)P.vy=0;if(P.slide>0)P.slide--;if(P.stumble>0)P.stumble--;
   for(const o of obs)o.z-=speed;for(const c of coins)c.z-=speed;spawnZ-=speed;
   while(spawnZ<FAR){pattern(spawnZ);spawnZ+=Math.max(8,13-dist/900)+Math.random()*5}
   // collisions
@@ -215,11 +217,24 @@ function stepParts(){for(const p of parts){p.x+=p.vx;p.y+=p.vy;p.vy+=.25;p.l--}p
 function die(){P.dead=true;shake=14;CG.sfx.hit();CG.flash();const q=pr(P.x,1,PZ);for(let i=0;i<24;i++)parts.push({x:q.x,y:q.y,vx:(Math.random()-.5)*10,vy:-Math.random()*8,l:40,c:['#ffd426','#ff4f6d','#fff'][i%3]})}
 /* dessin */
 function quad(a,b,c,d,fill,stroke){ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.lineTo(c.x,c.y);ctx.lineTo(d.x,d.y);ctx.closePath();ctx.fillStyle=fill;ctx.fill();if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=2;ctx.stroke()}}
+// Une rame : longue caisse avec toit, bande de fenêtres sur le côté, phares, ombre au sol. Contour rouge clignotant si elle est sur TA voie.
+function drawTrain(x,o,warn){
+  const z0=Math.max(NEAR,o.z),z1=o.z+o.len,w=1.2,h=2.4;
+  // ombre au sol sur toute la longueur
+  quad(pr(x-w/2-.08,0,z0),pr(x+w/2+.08,0,z0),pr(x+w/2+.08,0,z1),pr(x-w/2-.08,0,z1),'rgba(10,8,40,.45)');
+  const b=box(x,w,0,h,o.z,z1,'#ff4f6d','#ffc2d0','#d9405c');
+  // bande de fenêtres le long du flanc visible
+  const rx=x-camX;if(Math.abs(rx)>.1){const sx=rx>0?x-w/2:x+w/2;for(let z=Math.max(z0,o.z+.6);z<z1-.4;z+=1.3){const a=pr(sx,1.95,z),b2=pr(sx,1.95,z+.8),c=pr(sx,1.3,z+.8),d=pr(sx,1.3,z);quad(a,b2,c,d,'#12102bcc')}}
+  if(o.z>=NEAR){const s=b.B.x-b.A.x;ctx.fillStyle='#12102b';ctx.fillRect(b.A.x+s*.12,b.A.y+s*.14,s*.76,s*.36);
+    ctx.fillStyle='#fff6c2';ctx.beginPath();ctx.arc(b.A.x+s*.2,b.D.y-s*.2,s*.08,0,7);ctx.arc(b.B.x-s*.2,b.D.y-s*.2,s*.08,0,7);ctx.fill();
+    ctx.fillStyle='#ffd426';ctx.font=`900 ${Math.max(7,s*.16)}px system-ui`;ctx.textAlign='center';ctx.fillText('CHAD EXPRESS',(b.A.x+b.B.x)/2,b.A.y+s*.6);
+    if(warn&&t%30<18){ctx.strokeStyle='#ffd426';ctx.lineWidth=Math.max(3,s*.05);ctx.strokeRect(b.A.x-2,b.A.y-2,s+4,b.D.y-b.A.y+4)}}
+}
 function box(x,w,y0,y1,z0,z1,front,top,side){
-  const zn=Math.max(PZ-.7,z0);if(z1<=zn)return{A:pr(x,y1,zn),B:pr(x,y1,zn),C:pr(x,y0,zn),D:pr(x,y0,zn)};const A=pr(x-w/2,y1,zn),B=pr(x+w/2,y1,zn),C=pr(x+w/2,y0,zn),D=pr(x-w/2,y0,zn);
+  const zn=Math.max(NEAR,z0);if(z1<=zn)return{A:pr(x,y1,zn),B:pr(x,y1,zn),C:pr(x,y0,zn),D:pr(x,y0,zn)};const A=pr(x-w/2,y1,zn),B=pr(x+w/2,y1,zn),C=pr(x+w/2,y0,zn),D=pr(x-w/2,y0,zn);
   const A2=pr(x-w/2,y1,z1),B2=pr(x+w/2,y1,z1);
   quad(A,B,B2,A2,top,'#12102b');
-  if(x>0.1){const C2=pr(x-w/2,y0,z1);quad(A,A2,C2,D,side,'#12102b')}else if(x<-.1){const C2=pr(x+w/2,y0,z1);quad(B,B2,C2,C,side,'#12102b')}
+  if(x-camX>0.1){const C2=pr(x-w/2,y0,z1);quad(A,A2,C2,D,side,'#12102b')}else if(x-camX<-.1){const C2=pr(x+w/2,y0,z1);quad(B,B2,C2,C,side,'#12102b')}
   quad(A,B,C,D,front,'#12102b');return{A,B,C,D}
 }
 function draw(){
@@ -237,8 +252,8 @@ function draw(){
   const items=[...obs.map(o=>({z:o.z,o})),...coins.map(c=>({z:c.z,c})),{z:PZ,p:1}].sort((a,b)=>b.z-a.z);
   for(const it of items){
     if(it.o){const o=it.o,x=o.lane*LANE;if(o.z>FAR)continue;
-      if(o.k==='train'){if(o.z+o.len<PZ-.7)continue;const b=box(x,1.15,0,2.3,o.z,o.z+o.len,'#ff4f6d','#ffd0dc','#c8364f');
-        if(o.z>PZ-.7){const s=b.B.x-b.A.x;ctx.fillStyle='#12102b';ctx.fillRect(b.A.x+s*.15,b.A.y+s*.12,s*.7,s*.32);ctx.fillStyle='#ffd426';ctx.beginPath();ctx.arc(b.A.x+s*.2,b.D.y-s*.18,s*.07,0,7);ctx.arc(b.B.x-s*.2,b.D.y-s*.18,s*.07,0,7);ctx.fill()}}
+      if(o.k==='train'){if(o.z+o.len<NEAR)continue;const warn=o.lane===P.lane&&o.z>PZ&&o.z<PZ+22;drawTrain(x,o,warn);continue;const b={};
+        if(false){const s=b.B.x-b.A.x;ctx.fillStyle='#12102b';ctx.fillRect(b.A.x+s*.15,b.A.y+s*.12,s*.7,s*.32);ctx.fillStyle='#ffd426';ctx.beginPath();ctx.arc(b.A.x+s*.2,b.D.y-s*.18,s*.07,0,7);ctx.arc(b.B.x-s*.2,b.D.y-s*.18,s*.07,0,7);ctx.fill()}}
       else if(o.z<PZ-.7)continue;else if(o.k==='low'){box(x,1.1,0,.75,o.z,o.z+.25,'#ffd426','#fff3b0','#d9b000');const p1=pr(x-.5,.45,o.z),p2=pr(x+.5,.45,o.z);ctx.strokeStyle='#12102b';ctx.lineWidth=Math.max(2,p1.s*.08);ctx.beginPath();for(let i=0;i<4;i++){const a=p1.x+(p2.x-p1.x)*(i/4),b=p1.x+(p2.x-p1.x)*((i+.5)/4);ctx.moveTo(a,p1.y-p1.s*.15);ctx.lineTo(b,p1.y+p1.s*.15)}ctx.stroke()}
       else{box(x-.5,.12,0,2.1,o.z,o.z+.12,'#9aa0b8','#c9cbe0','#6d7290');box(x+.5,.12,0,2.1,o.z,o.z+.12,'#9aa0b8','#c9cbe0','#6d7290');const b=box(x,1.15,1.15,2.05,o.z,o.z+.15,'#2ee6a6','#b8ffe6','#1fbf88');if(o.z>PZ-.7){const s=b.B.x-b.A.x;ctx.fillStyle='#12102b';ctx.font=`900 ${Math.max(8,s*.22)}px system-ui`;ctx.textAlign='center';ctx.fillText('GLISSE',(b.A.x+b.B.x)/2,(b.A.y+b.D.y)/2+s*.08)}}}
     else if(it.c){const c=it.c;if(c.z>FAR*.8)continue;if(c.z<PZ-.5)continue;const q=pr(c.lane*LANE,c.y,c.z),r=Math.max(2,q.s*.22);const sq=Math.abs(Math.cos(t/8+c.z));ctx.fillStyle='#ffd426';ctx.strokeStyle='#8a6400';ctx.lineWidth=Math.max(1,r*.2);ctx.beginPath();ctx.ellipse(q.x,q.y,r*Math.max(.2,sq),r,0,0,7);ctx.fill();ctx.stroke()}
