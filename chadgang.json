@@ -1,0 +1,10 @@
+{
+  "title": "Chad Rush",
+  "description": "Le runner du métro version ChadGang : esquive les rames, saute, glisse, ramasse les pièces et cours plus loin que tout le monde.",
+  "author": "ChadGang",
+  "category": "Solo",
+  "emoji": "🏃",
+  "image": "cover.png",
+  "classement": "score",
+  "unite": "pts"
+}
